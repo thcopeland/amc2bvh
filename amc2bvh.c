@@ -282,6 +282,43 @@ void write_bvh_joint(FILE *bvh,
     fprintf_indent(depth, bvh, "}\n");
 }
 
+void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton *skeleton, float fps) {
+    fprintf(bvh, "MOTION\n");
+    fprintf(bvh, "Frames:\t%u\n", motion->sample_count);
+    fprintf(bvh, "Frame Time:\t%f\n", 1/fps);
+    struct amc_sample *sample = motion->samples;
+    while (sample) {
+        write_bvh_joint_sample(bvh, skeleton->root, sample);
+        fprintf(bvh, "\n");
+        sample = sample->next;
+    }
+}
+
+void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample) {
+    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_TX);
+    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_TY);
+    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_TZ);
+    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_RZ);
+    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_RX);
+    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_RY);
+
+    for (unsigned i = 0; i < joint->child_count; i++) {
+        write_bvh_joint_sample(bvh, joint->children[i], sample);
+    }
+}
+
+void write_bvh_joint_channel_if_present(FILE *bvh,
+                                        struct amc_joint *joint,
+                                        struct amc_sample *sample,
+                                        enum channel channel) {
+    for (int i = 0; i < CHANNEL_COUNT; i++) {
+        if (joint->channels[i] == channel) {
+            fprintf(bvh, "\t%f", sample->data[joint->motion_index+i]);
+            break;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc > 3) {
         FILE *asf = fopen(argv[1], "r"),
@@ -292,6 +329,7 @@ int main(int argc, char **argv) {
         printf("Starting to parse %s\n", argv[2]);
         struct amc_motion *motion = parse_amc_motion(amc, skeleton, true);
         write_bvh_skeleton(bvh, skeleton);
+        write_bvh_motion(bvh, motion, skeleton, 120);
         fclose(asf);
         fclose(amc);
         fclose(bvh);

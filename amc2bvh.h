@@ -38,13 +38,6 @@ struct amc_skeleton {
     struct vec3 root_position;  // the position of the root (from the ASF file)
 };
 
-// struct bvh_joint {
-//     char *name;
-//     struct joint *children[16];
-//     struct vec3 offset;
-//     unsigned char channels;
-// };
-
 struct amc_sample {
     struct amc_sample *next;
     float *data;
@@ -66,6 +59,12 @@ void write_bvh_joint(FILE *bvh,
                      struct amc_joint *joint,
                      struct vec3 offset,
                      int depth);
+void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton *skeleton, float fps);
+void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample);
+void write_bvh_joint_channel_if_present(FILE *bvh,
+                                        struct amc_joint *joint,
+                                        struct amc_sample *sample,
+                                        enum channel channel);
 
 void parse_channel_order(enum channel *channels, char *str, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
