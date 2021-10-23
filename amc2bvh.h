@@ -19,7 +19,7 @@ struct amc_joint {
     struct vec3 direction;
     float length;
     unsigned char child_count;
-    unsigned char channels; // MSB <unused> TX TY TZ RX RY RZ L LSB
+    unsigned char channels; // MSB <unused> L RZ RY RX TZ TY TX LSB
 };
 
 struct amc_skeleton {
@@ -41,7 +41,13 @@ struct amc_skeleton {
 
 #define BUFFSIZE 2048
 
-struct amc_skeleton *parse_skeleton(FILE *asf_data, unsigned char max_child_count, bool verbose);
+struct amc_skeleton *parse_skeleton(FILE *aft, unsigned char max_child_count, bool verbose);
+void write_bvh_skeleton(FILE *bvh, struct amc_skeleton *skeleton);
+void write_bvh_joint(FILE *bvh,
+                     struct amc_skeleton *skeleton,
+                     struct amc_joint *joint,
+                     struct vec3 offset,
+                     int depth);
 
 enum channel parse_channel_order(char *name, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
@@ -52,7 +58,15 @@ void amc_skeleton_free(struct amc_skeleton *skeleton);
 struct amc_joint *amc_joint_new(unsigned char max_child_count);
 void amc_joint_free(struct amc_joint *joint, bool deep);
 
-#define FAIL(...) do { fprintf(stderr, "Error: " __VA_ARGS__); exit(1); } while(0)
+#define FAIL(...) do {                                                         \
+    fprintf(stderr, "Error: " __VA_ARGS__);                                    \
+    exit(1);                                                                   \
+} while(0)
+
+#define fprintf_indent(indent, f, ...) do {                                    \
+    for (int ind = 0; ind < indent; ind++) fprintf(f, "\t");                   \
+    fprintf(f, __VA_ARGS__);                                                   \
+} while(0)
 
 void *xmalloc(size_t size);
 void *xrealloc(void *mem, size_t size);
@@ -61,6 +75,7 @@ char *trim(char *str);
 char *bifurcate(char *str, char delim);
 bool streq(char *str, char *str2);
 bool starts_with(char *str, char *pref);
+unsigned bitsum(unsigned val);
 
 struct hashmap *jointmap_new(void);
 void jointmap_free(struct hashmap *map);

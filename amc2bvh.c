@@ -99,7 +99,7 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
 
                         parent->children[parent->child_count++] = child;
 
-                        if (parent->child_count >= max_child_count) {
+                        if (parent->child_count > max_child_count) {
                             FAIL("Bone `%s' has %i children, max permitted is %i\n", parent_name, parent->child_count, max_child_count);
                         }
                     }
@@ -152,11 +152,52 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
     return skeleton;
 }
 
+void write_bvh_skeleton(FILE *bvh, struct amc_skeleton *skeleton) {
+    fprintf(bvh, "HIERARCHY\n");
+    write_bvh_joint(bvh, skeleton, skeleton->root, (struct vec3){ 0, 0, 0 }, 0);
+}
+
+void write_bvh_joint(FILE *bvh,
+                     struct amc_skeleton *skeleton,
+                     struct amc_joint *joint,
+                     struct vec3 offset,
+                     int depth) {
+    fprintf_indent(depth, bvh, "%s %s\n", depth ? "JOINT" : "ROOT", joint->name);
+    fprintf_indent(depth, bvh, "{\n");
+    fprintf_indent(depth+1, bvh, "OFFSET\t%f\t%f\t%f\n", offset.x, offset.y, offset.z);
+    fprintf_indent(depth+1, bvh, "CHANNELS %u", bitsum(joint->channels));
+    if (joint->channels & (1<<TX)) fprintf(bvh, " Xposition");
+    if (joint->channels & (1<<TY)) fprintf(bvh, " Yposition");
+    if (joint->channels & (1<<TZ)) fprintf(bvh, " Zposition");
+    if (joint->channels & (1<<RZ)) fprintf(bvh, " Zrotation");
+    if (joint->channels & (1<<RY)) fprintf(bvh, " Xrotation");
+    if (joint->channels & (1<<RX)) fprintf(bvh, " Yrotation");
+    fprintf(bvh, "\n");
+
+    struct vec3 child_offset = vec3_scale(vec3_normalize(joint->direction), joint->length);
+    if (joint->child_count > 0) {
+        for (int i = 0; i < joint->child_count; i++) {
+            write_bvh_joint(bvh, skeleton, joint->children[i], child_offset, depth+1);
+        }
+    } else {
+        fprintf_indent(depth+1, bvh, "End Site\n");
+        fprintf_indent(depth+1, bvh, "{\n");
+        fprintf_indent(depth+2, bvh, "OFFSET\t%f\t%f\t%f\n", child_offset.x, child_offset.y, child_offset.z);
+        fprintf_indent(depth+1, bvh, "}\n");
+    }
+
+    fprintf_indent(depth, bvh, "}\n");
+}
+
 int main(int argc, char **argv) {
-    if (argc > 1) {
-        FILE *asf = fopen(argv[1], "r");
+    if (argc > 3) {
+        FILE *asf = fopen(argv[1], "r"),
+             *amc = fopen(argv[2], "r"),
+             *bvh = fopen(argv[3], "w");
         struct amc_skeleton *skeleton = parse_skeleton(asf, 4, true);
+        write_bvh_skeleton(bvh, skeleton);
         fclose(asf);
+        fclose(bvh);
         amc_skeleton_free(skeleton);
     }
 }
@@ -189,13 +230,13 @@ unsigned char parse_channel_flags(char *str) {
     while(str) {
         char *channel = str;
         str = bifurcate(str, ' ');
-        flags |= (streq(channel, "tx") << 6);
-        flags |= (streq(channel, "ty") << 5);
-        flags |= (streq(channel, "tz") << 4);
-        flags |= (streq(channel, "rx") << 3);
-        flags |= (streq(channel, "ry") << 2);
-        flags |= (streq(channel, "rz") << 1);
-        flags |= (streq(channel, "l") << 0);
+        flags |= (streq(channel, "tx") << TX);
+        flags |= (streq(channel, "ty") << TY);
+        flags |= (streq(channel, "tz") << TZ);
+        flags |= (streq(channel, "rx") << RX);
+        flags |= (streq(channel, "ry") << RY);
+        flags |= (streq(channel, "rz") << RZ);
+        flags |= (streq(channel, "l") << L);
     }
     return flags;
 }
@@ -283,6 +324,15 @@ bool streq(char *str, char *str2) {
 
 bool starts_with(char *str, char *pref) {
     return strncmp(str, pref, strlen(pref)) == 0;
+}
+
+unsigned bitsum(unsigned val) {
+    unsigned p = 0;
+    while (val) {
+        p += val & 1;
+        val >>= 1;
+    }
+    return p;
 }
 
 struct hashmap *jointmap_new(void) {
