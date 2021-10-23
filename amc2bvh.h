@@ -4,8 +4,17 @@
 #include "hashmap.h"
 #include "matrices.h"
 
+#define CHANNEL_COUNT 8
+
 enum channel {
-    TX, TY, TZ, RX, RY, RZ, L
+    CHANNEL_TX,
+    CHANNEL_TY,
+    CHANNEL_TZ,
+    CHANNEL_RX,
+    CHANNEL_RY,
+    CHANNEL_RZ,
+    CHANNEL_L,
+    CHANNEL_EMPTY
 };
 
 struct jointmap_item {
@@ -16,16 +25,17 @@ struct jointmap_item {
 struct amc_joint {
     char *name;
     struct amc_joint **children;
-    struct vec3 direction;
-    float length;
     unsigned char child_count;
-    unsigned char channels; // MSB <unused> L RZ RY RX TZ TY TX LSB
+    struct vec3 direction;
+    enum channel channels[CHANNEL_COUNT];
+    float length;
 };
 
 struct amc_skeleton {
     struct amc_joint *root;
+    enum channel root_channels[CHANNEL_COUNT];
+    struct vec3 root_position;
     struct hashmap *map;
-    enum channel order[8];
 };
 
 // struct bvh_joint {
@@ -49,9 +59,8 @@ void write_bvh_joint(FILE *bvh,
                      struct vec3 offset,
                      int depth);
 
-enum channel parse_channel_order(char *name, int line_num);
+void parse_channel_order(enum channel *channels, char *str, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
-unsigned char parse_channel_flags(char *str);
 
 struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count);
 void amc_skeleton_free(struct amc_skeleton *skeleton);
@@ -75,7 +84,6 @@ char *trim(char *str);
 char *bifurcate(char *str, char delim);
 bool streq(char *str, char *str2);
 bool starts_with(char *str, char *pref);
-unsigned bitsum(unsigned val);
 
 struct hashmap *jointmap_new(void);
 void jointmap_free(struct hashmap *map);

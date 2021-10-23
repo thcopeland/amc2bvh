@@ -4,7 +4,13 @@
 #include "amc2bvh.h"
 
 enum parsing_mode {
-    NONE, UNIT, DOC, ROOT, BONES, BONE, TREE
+    MODE_NONE,
+    MODE_UNIT,
+    MODE_DOC,
+    MODE_ROOT,
+    MODE_BONES,
+    MODE_BONE,
+    MODE_TREE
 };
 
 struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bool verbose) {
@@ -13,7 +19,7 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
     // parsing data
     char *buffer = xmalloc(BUFFSIZE);
     int line_num = 0, modes_encountered = 0;
-    enum parsing_mode mode = NONE;
+    enum parsing_mode mode = MODE_NONE;
 
     // information
     float angle_conversion = 1.0;
@@ -33,23 +39,23 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
                 if (verbose) printf("ASF version: %s\n", trim(buffer+8));
             } else if (starts_with(buffer, ":name")) {
                 if (verbose) printf("Name: %s\n", trim(buffer+5));
-            } else if (starts_with(buffer, ":units")) mode = UNIT;
-            else if (starts_with(buffer, ":documentation")) mode = DOC;
-            else if (starts_with(buffer, ":root")) mode = ROOT;
-            else if (starts_with(buffer, ":bonedata")) mode = BONES;
-            else if (starts_with(buffer, ":hierarchy")) mode = TREE;
+            } else if (starts_with(buffer, ":units")) mode = MODE_UNIT;
+            else if (starts_with(buffer, ":documentation")) mode = MODE_DOC;
+            else if (starts_with(buffer, ":root")) mode = MODE_ROOT;
+            else if (starts_with(buffer, ":bonedata")) mode = MODE_BONES;
+            else if (starts_with(buffer, ":hierarchy")) mode = MODE_TREE;
             else FAIL("Encountered unknown keyword `%s'\n", trim(buffer));
         } else if (starts_with(buffer, " ") || starts_with(buffer, "\t")) {
-            if (mode == BONES) {
+            if (mode == MODE_BONES) {
                 // Handle the 'bonedata' segment in the ASF file. This section contains a series
                 // of subsections, one for every bone in the rig, so the real work is done in the
-                // BONE mode.
+                // MODE_BONE mode.
                 if (streq(trimmed, "begin")) {
                     current_joint = amc_joint_new(max_child_count);
-                    mode = BONE;
+                    mode = MODE_BONE;
                 }
                 else FAIL("Unexpected token %s on line %i\n", trimmed, line_num);
-            } else if (mode == BONE) {
+            } else if (mode == MODE_BONE) {
                 // Handle a single subsection in the 'bonedata' section. It describes a single
                 // bone, but contains no hierarchical information.
                 char *prop = trimmed,
@@ -64,9 +70,9 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
                 } else if (streq(prop, "length")) {
                     sscanf(val, "%f", &current_joint->length);
                 } else if (streq(prop, "dof")) {
-                    current_joint->channels = parse_channel_flags(val);
+                    parse_channel_order(current_joint->channels, val, line_num);
                 } else if (streq(prop, "end")) {
-                    mode = BONES;
+                    mode = MODE_BONES;
                     if (current_joint->name) {
                         jointmap_set(skeleton->map, current_joint->name, current_joint);
                         if (verbose) printf("Initialized bone `%s'\n", current_joint->name);
@@ -79,7 +85,7 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
                 } else {
                     FAIL("Unexpected bone property `%s' on line %i\n", prop, line_num);
                 }
-            } else if (mode == TREE) {
+            } else if (mode == MODE_TREE) {
                 // Handle the hierarchical information contained in the 'hierarchy' segment. This
                 // section describes a single bone tree.
                 if (streq(trimmed, "begin") || streq(trimmed, "end")) {
@@ -104,24 +110,21 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
                         }
                     }
                 }
-            } else if (mode == ROOT) {
+            } else if (mode == MODE_ROOT) {
                 // Handle the 'root' segment, which describes the root joint. We ignore most
-                // of the data here, such as root position and orientation, which are usually
-                // zero anyway.
+                // of the data here.
                 char *prop = trim(buffer),
                      *val = bifurcate(prop, ' ');
 
-                // ignore everything except channel order
                 if (streq(prop, "order")) {
-                    for (int i = 0; val; i++) {
-                        skeleton->order[i] = parse_channel_order(val, line_num);
-                        val = bifurcate(val, ' ');
-                    }
+                    parse_channel_order(skeleton->root_channels, val, line_num);
+                } else if (streq(prop, "position")) {
+                    skeleton->root_position = parse_vec3(val, line_num);
                 }
-            } else if (mode == DOC && verbose) {
+            } else if (mode == MODE_DOC && verbose) {
                 // Handle a 'documentation' section.
                 printf("Documentation: %s\n", trim(buffer));
-            } else if (mode == UNIT) {
+            } else if (mode == MODE_UNIT) {
                 // Handle a 'units' section. We ignore everything except angle
                 // units.
                 char *unit = trim(buffer),
@@ -142,9 +145,9 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
         }
     }
 
-    if (!(modes_encountered & (1 << ROOT))) FAIL("Missing root bone data\n");
-    if (!(modes_encountered & (1 << BONES))) FAIL("Missing bone data\n");
-    if (!(modes_encountered & (1 << TREE))) FAIL("Missing bone hierarchy data\n");
+    if (!(modes_encountered & (1 << MODE_ROOT))) FAIL("Missing root bone data\n");
+    if (!(modes_encountered & (1 << MODE_BONES))) FAIL("Missing bone data\n");
+    if (!(modes_encountered & (1 << MODE_TREE))) FAIL("Missing bone hierarchy data\n");
     if (verbose) printf("Finished constructing skeleton\n");
 
     free(buffer);
@@ -154,7 +157,7 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
 
 void write_bvh_skeleton(FILE *bvh, struct amc_skeleton *skeleton) {
     fprintf(bvh, "HIERARCHY\n");
-    write_bvh_joint(bvh, skeleton, skeleton->root, (struct vec3){ 0, 0, 0 }, 0);
+    write_bvh_joint(bvh, skeleton, skeleton->root, skeleton->root_position, 0);
 }
 
 void write_bvh_joint(FILE *bvh,
@@ -165,13 +168,18 @@ void write_bvh_joint(FILE *bvh,
     fprintf_indent(depth, bvh, "%s %s\n", depth ? "JOINT" : "ROOT", joint->name);
     fprintf_indent(depth, bvh, "{\n");
     fprintf_indent(depth+1, bvh, "OFFSET\t%f\t%f\t%f\n", offset.x, offset.y, offset.z);
-    fprintf_indent(depth+1, bvh, "CHANNELS %u", bitsum(joint->channels));
-    if (joint->channels & (1<<TX)) fprintf(bvh, " Xposition");
-    if (joint->channels & (1<<TY)) fprintf(bvh, " Yposition");
-    if (joint->channels & (1<<TZ)) fprintf(bvh, " Zposition");
-    if (joint->channels & (1<<RZ)) fprintf(bvh, " Zrotation");
-    if (joint->channels & (1<<RY)) fprintf(bvh, " Xrotation");
-    if (joint->channels & (1<<RX)) fprintf(bvh, " Yrotation");
+    int channel_count = 0, channel_mask = 0;
+    while (channel_count < CHANNEL_COUNT && joint->channels[channel_count] != CHANNEL_EMPTY) {
+        channel_mask |= (1 << joint->channels[channel_count]);
+        channel_count++;
+    }
+    fprintf_indent(depth+1, bvh, "CHANNELS %i", channel_count);
+    if (channel_mask & (1<<CHANNEL_TX)) fprintf(bvh, " Xposition");
+    if (channel_mask & (1<<CHANNEL_TY)) fprintf(bvh, " Yposition");
+    if (channel_mask & (1<<CHANNEL_TZ)) fprintf(bvh, " Zposition");
+    if (channel_mask & (1<<CHANNEL_RZ)) fprintf(bvh, " Zrotation");
+    if (channel_mask & (1<<CHANNEL_RX)) fprintf(bvh, " Xrotation");
+    if (channel_mask & (1<<CHANNEL_RY)) fprintf(bvh, " Yrotation");
     fprintf(bvh, "\n");
 
     struct vec3 child_offset = vec3_scale(vec3_normalize(joint->direction), joint->length);
@@ -206,15 +214,18 @@ int main(int argc, char **argv) {
   HELPER METHODS
 */
 
-enum channel parse_channel_order(char *name, int line_num) {
-    if (starts_with(name, "TX")) return TX;
-    else if (starts_with(name, "TY")) return TY;
-    else if (starts_with(name, "TZ")) return TZ;
-    else if (starts_with(name, "RX")) return RX;
-    else if (starts_with(name, "RY")) return RY;
-    else if (starts_with(name, "RZ")) return RZ;
-    else if (starts_with(name, "L")) return L;
-    FAIL("Unable to parse channel `%.2s' on line %i\n", name, line_num);
+void parse_channel_order(enum channel *channels, char *str, int line_num) {
+    for (int i = 0; str; i++) {
+        if      (starts_with(str, "TX") || starts_with(str, "tx")) channels[i] = CHANNEL_TX;
+		else if (starts_with(str, "TY") || starts_with(str, "ty")) channels[i] = CHANNEL_TY;
+		else if (starts_with(str, "TZ") || starts_with(str, "tz")) channels[i] = CHANNEL_TZ;
+		else if (starts_with(str, "RX") || starts_with(str, "rx")) channels[i] = CHANNEL_RX;
+		else if (starts_with(str, "RY") || starts_with(str, "ry")) channels[i] = CHANNEL_RY;
+		else if (starts_with(str, "RZ") || starts_with(str, "rz")) channels[i] = CHANNEL_RZ;
+		else if (starts_with(str, "L")  || starts_with(str, "l"))  channels[i] = CHANNEL_L;
+        else FAIL("Unable to parse channel `%.2s' on line %i\n", str, line_num);
+        str = bifurcate(str, ' ');
+    }
 }
 
 struct vec3 parse_vec3(char *str, int line_num) {
@@ -225,22 +236,6 @@ struct vec3 parse_vec3(char *str, int line_num) {
     return vec;
 }
 
-unsigned char parse_channel_flags(char *str) {
-    unsigned char flags = 0;
-    while(str) {
-        char *channel = str;
-        str = bifurcate(str, ' ');
-        flags |= (streq(channel, "tx") << TX);
-        flags |= (streq(channel, "ty") << TY);
-        flags |= (streq(channel, "tz") << TZ);
-        flags |= (streq(channel, "rx") << RX);
-        flags |= (streq(channel, "ry") << RY);
-        flags |= (streq(channel, "rz") << RZ);
-        flags |= (streq(channel, "l") << L);
-    }
-    return flags;
-}
-
 struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count) {
     struct amc_skeleton *skeleton = xmalloc(sizeof(*skeleton));
     skeleton->root = amc_joint_new(max_child_count);
@@ -248,6 +243,10 @@ struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count) {
     strcpy(skeleton->root->name, "root");
     skeleton->map = jointmap_new();
     jointmap_set(skeleton->map, "root", skeleton->root);
+    skeleton->root_position = (struct vec3){ 0, 0, 0 };
+    for (int i = 0; i < CHANNEL_COUNT; i++) {
+        skeleton->root_channels[i] = CHANNEL_EMPTY;
+    }
     return skeleton;
 }
 
@@ -264,7 +263,9 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
     joint->children = xmalloc(sizeof(*joint->children)*max_child_count);
     joint->child_count = 0;
     joint->length = 0;
-    joint->channels = 0;
+    for (int i = 0; i < CHANNEL_COUNT; i++) {
+        joint->channels[i] = CHANNEL_EMPTY;
+    }
     return joint;
 }
 
@@ -324,15 +325,6 @@ bool streq(char *str, char *str2) {
 
 bool starts_with(char *str, char *pref) {
     return strncmp(str, pref, strlen(pref)) == 0;
-}
-
-unsigned bitsum(unsigned val) {
-    unsigned p = 0;
-    while (val) {
-        p += val & 1;
-        val >>= 1;
-    }
-    return p;
 }
 
 struct hashmap *jointmap_new(void) {
