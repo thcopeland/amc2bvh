@@ -10,10 +10,11 @@ enum parsing_mode {
     MODE_ROOT,
     MODE_BONES,
     MODE_BONE,
-    MODE_TREE
+    MODE_TREE,
+    MODE_MOTION
 };
 
-struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bool verbose) {
+struct amc_skeleton *parse_asf_skeleton(FILE *asf, unsigned char max_child_count, bool verbose) {
     struct amc_skeleton *skeleton = amc_skeleton_new(max_child_count);
 
     // parsing data
@@ -31,8 +32,8 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
         modes_encountered |= (1 << mode);
 
         if (starts_with(buffer, "#")) continue; // comment
-        if (starts_with(buffer, "\n")) continue; // blank
-        if (starts_with(buffer, ":")) { // keyword, switch mode
+        if (strlen(trimmed) == 0) continue; // blank line
+        if (starts_with(buffer, ":") && mode != MODE_BONE && mode != MODE_TREE) { // keyword, switch mode
             mode = 0;
 
             if (starts_with(buffer, ":version")) {
@@ -88,8 +89,10 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
             } else if (mode == MODE_TREE) {
                 // Handle the hierarchical information contained in the 'hierarchy' segment. This
                 // section describes a single bone tree.
-                if (streq(trimmed, "begin") || streq(trimmed, "end")) {
-                    continue; // ignore begin and end since only one tree is permitted
+                if (streq(trimmed, "begin")) {
+                     continue; // ignore begin since only one tree is permitted
+                } else if (streq(trimmed, "end")) {
+                    mode = MODE_NONE;
                 } else {
                     char *parent_name = trimmed,
                          *children = bifurcate(parent_name, ' ');
@@ -117,7 +120,7 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
                      *val = bifurcate(prop, ' ');
 
                 if (streq(prop, "order")) {
-                    parse_channel_order(skeleton->root_channels, val, line_num);
+                    parse_channel_order(skeleton->root->channels, val, line_num);
                 } else if (streq(prop, "position")) {
                     skeleton->root_position = parse_vec3(val, line_num);
                 }
@@ -155,6 +158,88 @@ struct amc_skeleton *parse_skeleton(FILE *asf, unsigned char max_child_count, bo
     return skeleton;
 }
 
+struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bool verbose) {
+    unsigned total_channels = compute_amc_joint_indices(skeleton->root, 0);
+    if (verbose) printf("Computed joint motion indices\n");
+
+    struct amc_motion *motion = amc_motion_new(total_channels);
+    struct amc_sample *current_sample = NULL;
+    float angle_conversion = 1;
+
+    // parsing data
+    char *buffer = xmalloc(BUFFSIZE);
+    int line_num = 0;
+    enum parsing_mode mode = MODE_NONE;
+
+    while (readline(buffer, BUFFSIZE, amc)) {
+        char *trimmed = trim(buffer);
+        line_num++;
+
+        if (starts_with(trimmed, "#")) continue; // comment
+        else if (strlen(trimmed) == 0) continue; // blank line
+
+        if (mode == MODE_NONE) {
+            if (starts_with(trimmed, ":")) { // various flags of uncertain meaning
+                if (streq(trimmed, ":RADIANS")) {
+                    angle_conversion = 180/M_PI;
+                    if (verbose) printf("AMC uses radians (conversion factor = %f)\n", angle_conversion);
+                } else if (streq(trimmed, ":DEGREES")) {
+                    angle_conversion = 1.0;
+                    if (verbose) printf("AMC uses degrees (conversion factor = %f)\n", angle_conversion);
+                } else if (streq(trimmed, ":FULLY-SPECIFIED")) {
+                    continue; // ignore it
+                } else if (verbose) {
+                    printf("Warning: unrecognized AMC flag `%s'\n", trimmed);
+                }
+            } else if (isdigit(trimmed[0])) {
+                mode = MODE_MOTION;
+                motion->sample_count++;
+                motion->samples = amc_sample_new(total_channels);
+                current_sample = motion->samples;
+                if (verbose) printf("Starting to parse frames\n");
+            } else {
+                bifurcate(trimmed, ' ');
+                FAIL("Unexpected token `%s' on line %i\n", trimmed, line_num);
+            }
+        } else if (mode == MODE_MOTION) {
+            if (isdigit(trimmed[0])) {
+                motion->sample_count++;
+                current_sample->next = amc_sample_new(total_channels);
+                current_sample = current_sample->next;
+            } else {
+                char *joint_name = trimmed,
+                     *channel_data = bifurcate(trimmed, ' ');
+                struct amc_joint *joint = jointmap_get(skeleton->map, joint_name);
+                if (!joint) FAIL("Unrecognized bone `%s' referenced on line %i\n", joint_name, line_num);
+
+                // parse animation channels
+                for (int i = 0; i < CHANNEL_COUNT; i++) {
+                    enum channel channel = joint->channels[i];
+
+                    if (channel == CHANNEL_EMPTY || !channel_data) {
+                        if (channel_data || channel != CHANNEL_EMPTY) {
+                            int exp = 0;
+                            while (exp < CHANNEL_COUNT && joint->channels[exp] != CHANNEL_EMPTY) exp++;
+                            FAIL("Bone `%s' given an incorrect number of animation channels on line %i (expected %i)\n", joint->name, line_num, exp);
+                        } else {
+                            break; // finished parsing bone channels
+                        }
+                    } else {
+                        // parse an animation channel
+                        char *val = channel_data;
+                        channel_data = bifurcate(channel_data, ' ');
+                        current_sample->data[joint->motion_index+i] = (float) atof(val);
+                    }
+                }
+            }
+        }
+    }
+    if (verbose) printf("Parsed %i frames\n", motion->sample_count);
+    free(buffer);
+
+    return motion;
+}
+
 void write_bvh_skeleton(FILE *bvh, struct amc_skeleton *skeleton) {
     fprintf(bvh, "HIERARCHY\n");
     write_bvh_joint(bvh, skeleton, skeleton->root, skeleton->root_position, 0);
@@ -184,7 +269,7 @@ void write_bvh_joint(FILE *bvh,
 
     struct vec3 child_offset = vec3_scale(vec3_normalize(joint->direction), joint->length);
     if (joint->child_count > 0) {
-        for (int i = 0; i < joint->child_count; i++) {
+        for (unsigned i = 0; i < joint->child_count; i++) {
             write_bvh_joint(bvh, skeleton, joint->children[i], child_offset, depth+1);
         }
     } else {
@@ -202,11 +287,16 @@ int main(int argc, char **argv) {
         FILE *asf = fopen(argv[1], "r"),
              *amc = fopen(argv[2], "r"),
              *bvh = fopen(argv[3], "w");
-        struct amc_skeleton *skeleton = parse_skeleton(asf, 4, true);
+        printf("Starting to parse %s\n", argv[1]);
+        struct amc_skeleton *skeleton = parse_asf_skeleton(asf, 4, true);
+        printf("Starting to parse %s\n", argv[2]);
+        struct amc_motion *motion = parse_amc_motion(amc, skeleton, true);
         write_bvh_skeleton(bvh, skeleton);
         fclose(asf);
+        fclose(amc);
         fclose(bvh);
         amc_skeleton_free(skeleton);
+        amc_motion_free(motion);
     }
 }
 
@@ -244,9 +334,6 @@ struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count) {
     skeleton->map = jointmap_new();
     jointmap_set(skeleton->map, "root", skeleton->root);
     skeleton->root_position = (struct vec3){ 0, 0, 0 };
-    for (int i = 0; i < CHANNEL_COUNT; i++) {
-        skeleton->root_channels[i] = CHANNEL_EMPTY;
-    }
     return skeleton;
 }
 
@@ -263,6 +350,7 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
     joint->children = xmalloc(sizeof(*joint->children)*max_child_count);
     joint->child_count = 0;
     joint->length = 0;
+    joint->motion_index = 0;
     for (int i = 0; i < CHANNEL_COUNT; i++) {
         joint->channels[i] = CHANNEL_EMPTY;
     }
@@ -270,7 +358,7 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
 }
 
 void amc_joint_free(struct amc_joint *joint, bool deep) {
-    for (int i = 0; (deep && i < joint->child_count); i++) {
+    for (unsigned i = 0; (deep && i < joint->child_count); i++) {
         amc_joint_free(joint->children[i], deep);
     }
 
@@ -279,8 +367,55 @@ void amc_joint_free(struct amc_joint *joint, bool deep) {
     free(joint);
 }
 
+struct amc_motion *amc_motion_new(unsigned total_channels) {
+    struct amc_motion *motion = xmalloc(sizeof(*motion));
+    motion->total_channels = total_channels;
+    motion->sample_count = 0;
+    motion->samples = NULL;
+    return motion;
+}
+
+void amc_motion_free(struct amc_motion *motion) {
+    struct amc_sample *sample = motion->samples;
+    while (sample) {
+        struct amc_sample *next = sample->next;
+        free(sample->data);
+        free(sample);
+        sample = next;
+    }
+    free(motion);
+}
+
+struct amc_sample *amc_sample_new(unsigned total_channels) {
+    struct amc_sample *sample = xmalloc(sizeof(*sample));
+    sample->data = xcalloc(total_channels, sizeof(*sample->data));
+    sample->next = NULL;
+    return sample;
+}
+
+unsigned compute_amc_joint_indices(struct amc_joint *joint, unsigned offset) {
+    // recursively assign an array index based on position in the tree and number of animation channels
+    joint->motion_index = offset;
+
+    int count = 0;
+    while (count < CHANNEL_COUNT && joint->channels[count] != CHANNEL_EMPTY) count++;
+    offset += count;
+
+    for (unsigned i = 0; i < joint->child_count; i++) {
+        offset = compute_amc_joint_indices(joint->children[i], offset);
+    }
+
+    return offset;
+}
+
 void *xmalloc(size_t size) {
     void *mem = malloc(size);
+    if (mem) return mem;
+    FAIL("Unable to allocate sufficient memory\n");
+}
+
+void *xcalloc(size_t num, size_t size) {
+    void *mem = calloc(num, size);
     if (mem) return mem;
     FAIL("Unable to allocate sufficient memory\n");
 }
