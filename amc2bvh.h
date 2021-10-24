@@ -61,10 +61,7 @@ void write_bvh_joint(FILE *bvh,
                      int depth);
 void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton *skeleton, float fps);
 void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample);
-void write_bvh_joint_channel_if_present(FILE *bvh,
-                                        struct amc_joint *joint,
-                                        struct amc_sample *sample,
-                                        enum channel channel);
+float amc_joint_sample_channel(struct amc_joint *joint, struct amc_sample *sample, enum channel channel);
 
 void parse_channel_order(enum channel *channels, char *str, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
@@ -72,6 +69,7 @@ struct vec3 parse_vec3(char *str, int line_num);
 struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count);
 void amc_skeleton_free(struct amc_skeleton *skeleton);
 struct amc_joint *amc_joint_new(unsigned char max_child_count);
+bool amc_joint_has_translation(struct amc_joint *joint);
 void amc_joint_free(struct amc_joint *joint, bool deep);
 struct amc_motion *amc_motion_new(unsigned total_channels);
 void amc_motion_free(struct amc_motion *motion);

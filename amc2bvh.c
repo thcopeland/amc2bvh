@@ -253,18 +253,14 @@ void write_bvh_joint(FILE *bvh,
     fprintf_indent(depth, bvh, "%s %s\n", depth ? "JOINT" : "ROOT", joint->name);
     fprintf_indent(depth, bvh, "{\n");
     fprintf_indent(depth+1, bvh, "OFFSET\t%f\t%f\t%f\n", offset.x, offset.y, offset.z);
-    int channel_count = 0, channel_mask = 0;
-    while (channel_count < CHANNEL_COUNT && joint->channels[channel_count] != CHANNEL_EMPTY) {
-        channel_mask |= (1 << joint->channels[channel_count]);
-        channel_count++;
-    }
-    fprintf_indent(depth+1, bvh, "CHANNELS %i", channel_count);
-    if (channel_mask & (1<<CHANNEL_TX)) fprintf(bvh, " Xposition");
-    if (channel_mask & (1<<CHANNEL_TY)) fprintf(bvh, " Yposition");
-    if (channel_mask & (1<<CHANNEL_TZ)) fprintf(bvh, " Zposition");
-    if (channel_mask & (1<<CHANNEL_RZ)) fprintf(bvh, " Zrotation");
-    if (channel_mask & (1<<CHANNEL_RX)) fprintf(bvh, " Xrotation");
-    if (channel_mask & (1<<CHANNEL_RY)) fprintf(bvh, " Yrotation");
+
+    // It doesn't seem to be an official part of the BVH spec, but the Blender
+    // BVH parser expects translations and rotations to be either all present or
+    // none present, and rotations to be always present.
+    bool has_translations = amc_joint_has_translation(joint);
+    fprintf_indent(depth+1, bvh, "CHANNELS %i", has_translations ? 6 : 3);
+    if (has_translations) fprintf(bvh, " Xposition Yposition Zposition");
+    fprintf(bvh, " Zrotation Xrotation Yrotation");
     fprintf(bvh, "\n");
 
     struct vec3 child_offset = vec3_scale(vec3_normalize(joint->direction), joint->length);
@@ -295,28 +291,28 @@ void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton 
 }
 
 void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample) {
-    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_TX);
-    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_TY);
-    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_TZ);
-    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_RZ);
-    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_RX);
-    write_bvh_joint_channel_if_present(bvh, joint, sample, CHANNEL_RY);
+    if (amc_joint_has_translation(joint)) {
+        fprintf(bvh, "\t%f\t%f\t%f", amc_joint_sample_channel(joint, sample, CHANNEL_TX),
+                                     amc_joint_sample_channel(joint, sample, CHANNEL_TY),
+                                     amc_joint_sample_channel(joint, sample, CHANNEL_TZ));
+    }
+
+    fprintf(bvh, "\t%f\t%f\t%f", amc_joint_sample_channel(joint, sample, CHANNEL_RZ),
+                                 amc_joint_sample_channel(joint, sample, CHANNEL_RX),
+                                 amc_joint_sample_channel(joint, sample, CHANNEL_RY));
 
     for (unsigned i = 0; i < joint->child_count; i++) {
         write_bvh_joint_sample(bvh, joint->children[i], sample);
     }
 }
 
-void write_bvh_joint_channel_if_present(FILE *bvh,
-                                        struct amc_joint *joint,
-                                        struct amc_sample *sample,
-                                        enum channel channel) {
+float amc_joint_sample_channel(struct amc_joint *joint, struct amc_sample *sample, enum channel channel) {
     for (int i = 0; i < CHANNEL_COUNT; i++) {
         if (joint->channels[i] == channel) {
-            fprintf(bvh, "\t%f", sample->data[joint->motion_index+i]);
-            break;
+            return sample->data[joint->motion_index+i];
         }
     }
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -395,6 +391,16 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
     return joint;
 }
 
+bool amc_joint_has_translation(struct amc_joint *joint) {
+    for (int i = 0; i < CHANNEL_COUNT && joint->channels[i] != CHANNEL_EMPTY; i++) {
+        enum channel channel = joint->channels[i];
+        if (channel == CHANNEL_TX || channel == CHANNEL_TY || channel == CHANNEL_TZ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void amc_joint_free(struct amc_joint *joint, bool deep) {
     for (unsigned i = 0; (deep && i < joint->child_count); i++) {
         amc_joint_free(joint->children[i], deep);
@@ -432,17 +438,12 @@ struct amc_sample *amc_sample_new(unsigned total_channels) {
 }
 
 unsigned compute_amc_joint_indices(struct amc_joint *joint, unsigned offset) {
-    // recursively assign an array index based on position in the tree and number of animation channels
+    // recursively assign an array index based on position in the tree
     joint->motion_index = offset;
-
-    int count = 0;
-    while (count < CHANNEL_COUNT && joint->channels[count] != CHANNEL_EMPTY) count++;
-    offset += count;
-
+    offset += CHANNEL_COUNT;
     for (unsigned i = 0; i < joint->child_count; i++) {
         offset = compute_amc_joint_indices(joint->children[i], offset);
     }
-
     return offset;
 }
 
