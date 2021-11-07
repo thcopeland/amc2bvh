@@ -158,6 +158,7 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
     struct amc_motion *motion = amc_motion_new(total_channels);
     struct amc_sample *current_sample = NULL;
     float angle_conversion = 1;
+    bool is_fully_specified = false;
 
     // parsing data
     char *buffer = xmalloc(BUFFSIZE);
@@ -180,7 +181,7 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
                     angle_conversion = 1.0;
                     if (verbose) printf("AMC uses degrees (conversion factor = %f)\n", angle_conversion);
                 } else if (streq(trimmed, ":FULLY-SPECIFIED")) {
-                    continue; // ignore it
+                    is_fully_specified = true;
                 } else if (verbose) {
                     printf("Warning: unrecognized AMC flag `%s'\n", trimmed);
                 }
@@ -209,7 +210,10 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
         }
     }
 
-    if (verbose) printf("Parsed %i frames\n", motion->sample_count);
+    if (verbose) {
+        printf("Parsed %i frames\n", motion->sample_count);
+        if (!is_fully_specified) printf("Warning: this file may not be fully-specified (alternative formats may be unsupported)\n");
+    }
     free(buffer);
 
     return motion;
