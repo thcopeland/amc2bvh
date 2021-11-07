@@ -1,7 +1,7 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wno-implicit-fallthrough -Wno-unused-parameter -flto -O2 -I. -lm
-DEPS=amc2bvh.h matrices.h hashmap.h
-OBJ=amc2bvh.o matrices.o hashmap.o
+CFLAGS=-Wall -Wextra -Wno-implicit-fallthrough -Wno-unused-parameter -flto -O2 -I. -lm -lattyr
+DEPS=amc2bvh.h hashmap.h render_test.c
+OBJ=amc2bvh.o hashmap.o
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)

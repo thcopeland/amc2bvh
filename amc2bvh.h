@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "hashmap.h"
-#include "matrices.h"
 
 #define CHANNEL_COUNT 8
 
@@ -17,6 +16,19 @@ enum channel {
     CHANNEL_EMPTY
 };
 
+struct vec3 {
+    float x, y, z;
+};
+
+struct quat {
+    float w, x, y, z;
+};
+
+struct euler_triple {
+    float alpha, beta, gamma;
+    enum channel first, second, third;
+};
+
 struct jointmap_item {
     char *name;
     void *joint;
@@ -28,6 +40,8 @@ struct amc_joint {
     unsigned child_count;   // the number of children in the tree
     unsigned motion_index;  // where motion data for this joint should be stored in a sample (arguably doesn't belong here, but simplifies things)
     struct vec3 direction;  // the direction of the joint (from the ASF file)
+    struct quat rotation;   // the local rotation transform of the joint (from the ASF file)
+    struct euler_triple rotation2;
     enum channel channels[CHANNEL_COUNT]; // the animation channels (from the ASF file)
     float length; // the length of the joint (from the ASF file)
 };
@@ -63,6 +77,9 @@ void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton 
 void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample);
 float amc_joint_sample_channel(struct amc_joint *joint, struct amc_sample *sample, enum channel channel);
 
+// remove the joint parameter
+struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *joint, int line_num);
+void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, char *str, int line_num);
 void parse_channel_order(enum channel *channels, char *str, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
 
@@ -101,3 +118,14 @@ void *jointmap_get(struct hashmap *map, char *name);
 void jointmap_set(struct hashmap *map, char *name, void *joint);
 int jointmap_cmp(const void *a, const void *b, void *data);
 uint64_t jointmap_hash(const void *item, uint64_t seed0, uint64_t seed1);
+
+struct vec3 vec3_scale(struct vec3 v, float s);
+struct vec3 vec3_normalize(struct vec3 v);
+float vec3_length(struct vec3 v);
+
+struct quat angle_axis_to_quat(float angle, struct vec3 axis);
+struct quat quat_mul(struct quat a, struct quat b);
+struct quat quat_conj(struct quat q);
+struct quat quat_inv(struct quat q);
+struct quat euler_to_quat(struct euler_triple e);
+struct euler_triple quat_to_euler_xyz(struct quat q);
