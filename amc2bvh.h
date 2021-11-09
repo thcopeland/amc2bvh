@@ -25,8 +25,10 @@ struct quat {
 };
 
 struct euler_triple {
-    float alpha, beta, gamma;
-    enum channel first, second, third;
+    float angles[3];
+    enum channel order[3];
+    // float alpha, beta, gamma;
+    // enum channel first, second, third;
 };
 
 struct jointmap_item {
@@ -75,7 +77,6 @@ void write_bvh_joint(FILE *bvh,
                      int depth);
 void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton *skeleton, float fps);
 void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample);
-float amc_joint_sample_channel(struct amc_joint *joint, struct amc_sample *sample, enum channel channel);
 
 // remove the joint parameter
 struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *joint, int line_num);

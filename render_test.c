@@ -147,8 +147,6 @@ void calculate_animation_transform(mat4 *animation, struct amc_joint *joint, str
 void calculate_axis_transform(mat4 *transform, mat4 *inv_transform, struct amc_joint *joint) {
     struct euler_triple e = joint->rotation2;
     // struct euler_triple e2 = quat_to_euler_xyz(joint->rotation); not quite the same, could be singularity issue
-    float angles[3] = { e.alpha, e.beta, e.gamma };
-    enum channel channels[3] = { e.first, e.second, e.third };
 
     attyr_diag_mat4x4(1, transform);
     attyr_diag_mat4x4(1, inv_transform);
@@ -159,15 +157,15 @@ void calculate_axis_transform(mat4 *transform, mat4 *inv_transform, struct amc_j
     for (int i = 0; i < 3; i++) {
         mat4 ch, inv;
 
-        if (channels[i] == CHANNEL_RX) {
-            attyr_rotate_x(angles[i], &ch);
-            attyr_rotate_x(-angles[i], &inv);
-        } else if (channels[i] == CHANNEL_RY) {
-            attyr_rotate_y(angles[i], &ch);
-            attyr_rotate_y(-angles[i], &inv);
-        } else if (channels[i] == CHANNEL_RZ) {
-            attyr_rotate_z(angles[i], &ch);
-            attyr_rotate_z(-angles[i], &inv);
+        if (e.order[i] == CHANNEL_RX) {
+            attyr_rotate_x(e.angles[i], &ch);
+            attyr_rotate_x(-e.angles[i], &inv);
+        } else if (e.order[i] == CHANNEL_RY) {
+            attyr_rotate_y(e.angles[i], &ch);
+            attyr_rotate_y(-e.angles[i], &inv);
+        } else if (e.order[i] == CHANNEL_RZ) {
+            attyr_rotate_z(e.angles[i], &ch);
+            attyr_rotate_z(-e.angles[i], &inv);
         } else {
             continue;
         }
@@ -225,7 +223,7 @@ void handle_sigint() {
     is_alive = 0;
 }
 
-void render_test(struct amc_skeleton *skeleton, struct amc_motion *motion, int frame) {
+void render_test(struct amc_skeleton *skeleton, struct amc_motion *motion) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = handle_sigint;

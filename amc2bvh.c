@@ -234,15 +234,15 @@ void write_bvh_joint(FILE *bvh,
     fprintf_indent(depth+1, bvh, "OFFSET\t%f\t%f\t%f\n", offset.x, offset.y, offset.z);
 
     // It doesn't seem to be an official part of the BVH spec, but the Blender
-    // BVH parser expects translations and rotations to be either all present or
+    // BVH parser expects translation and rotation channels to be either all or
     // none present, and rotations to be always present.
     bool has_translations = amc_joint_has_translation(joint);
     fprintf_indent(depth+1, bvh, "CHANNELS %i", has_translations ? 6 : 3);
     if (has_translations) fprintf(bvh, " Xposition Yposition Zposition");
 
-    // fprintf(bvh, " Xrotation Zrotation Yrotation");
-    fprintf(bvh, " Xrotation Yrotation Zrotation\n");
-    // fprintf(bvh, "\n");
+    // although the rotations are to be applied in XYZ order, they are written
+    // in the reverse order.
+    fprintf(bvh, " Zrotation Yrotation Xrotation\n");
 
     struct vec3 child_offset = vec3_scale(vec3_normalize(joint->direction), joint->length);
     if (joint->child_count > 0) {
@@ -273,57 +273,49 @@ void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton 
 
 void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample) {
     if (amc_joint_has_translation(joint)) {
-        fprintf(bvh, "\t%f\t%f\t%f", amc_joint_sample_channel(joint, sample, CHANNEL_TX),
-                                     amc_joint_sample_channel(joint, sample, CHANNEL_TY),
-                                     amc_joint_sample_channel(joint, sample, CHANNEL_TZ));
+        // read the translation data
+        float tx = 0, ty = 0, tz = 0;
+        for (int i = 0; i < CHANNEL_COUNT; i++) {
+            enum channel channel = joint->channels[i];
+            float val = sample->data[joint->motion_index+i];
+
+            if (channel == CHANNEL_TX) {
+                tx = val;
+            } else if (channel == CHANNEL_TY) {
+                ty = val;
+            } else if (channel == CHANNEL_TZ) {
+                tz = val;
+            }
+        }
+
+        fprintf(bvh, "\t%f\t%f\t%f", tx, ty, tz);
     }
-    // do the stuff here
 
-
-    // temporary only!!
     float deg2rad = M_PI/180,
           rad2deg = 1/deg2rad;
-    struct euler_triple sample_rotation = {
-        .alpha=amc_joint_sample_channel(joint, sample, CHANNEL_RX)*deg2rad,
-        .beta=amc_joint_sample_channel(joint, sample, CHANNEL_RY)*deg2rad,
-        .gamma=amc_joint_sample_channel(joint, sample, CHANNEL_RZ)*deg2rad,
-        .first=CHANNEL_RX, .second=CHANNEL_RY, .third=CHANNEL_RZ
-    };
 
-    // struct euler_triple combined_rotation = sample_rotation;
-    // struct euler_triple combined_rotation = joint->rotation2;
-    // struct euler_triple combined_rotation = quat_to_euler_xyz(joint->rotation);
-    // struct euler_triple combined_rotation = quat_to_euler_xyz(euler_to_quat(sample_rotation));
+    // read the rotation data
+    struct euler_triple sample_rotation;
+    for (int i = 0, j = 0; i < CHANNEL_COUNT; i++) {
+        enum channel channel = joint->channels[i];
+
+        if (channel == CHANNEL_RX || channel == CHANNEL_RY || channel == CHANNEL_RZ) {
+            sample_rotation.angles[j] = sample->data[joint->motion_index+i] * deg2rad;
+            sample_rotation.order[j++] = channel;
+        }
+    }
+
+    // apply the joint space to the animation rotation
     struct quat local = joint->rotation,
                 local_inv = quat_inv(joint->rotation),
                 motion = euler_to_quat(sample_rotation);
-    struct euler_triple combined_rotation = quat_to_euler_xyz(quat_mul(local_inv, quat_mul(motion, local)));
+    struct euler_triple combined_rotation = quat_to_euler_xyz(quat_mul(local, quat_mul(motion, local_inv)));
 
-    // xyz xzy yxz yzx zxy zyx
-    // fprintf(bvh, "\t%f\t%f\t%f", amc_joint_sample_channel(joint, sample, CHANNEL_RX),
-    //                              amc_joint_sample_channel(joint, sample, CHANNEL_RY),
-    //                              amc_joint_sample_channel(joint, sample, CHANNEL_RZ));
-    // fprintf(bvh, "\t%f\t%f\t%f", amc_joint_sample_channel(joint, sample, CHANNEL_RX)+joint->rotation2.alpha*rad2deg,
-    //                              amc_joint_sample_channel(joint, sample, CHANNEL_RY)+joint->rotation2.beta*rad2deg,
-    //                              amc_joint_sample_channel(joint, sample, CHANNEL_RZ)+joint->rotation2.gamma*rad2deg);
-    fprintf(bvh, "\t%f\t%f\t%f", combined_rotation.alpha*rad2deg, combined_rotation.beta*rad2deg, combined_rotation.gamma*rad2deg);
-    // fprintf(bvh, "\t%f\t%f\t%f", combined_rotation.alpha, combined_rotation.beta, combined_rotation.gamma);
-
-    // fprintf(bvh, " 0 0 0");
-    // printf("%s %f %f %f\n", joint->name, combined_rotation.alpha, combined_rotation.beta, combined_rotation.gamma);
+    fprintf(bvh, "\t%f\t%f\t%f", combined_rotation.angles[2]*rad2deg, combined_rotation.angles[1]*rad2deg, combined_rotation.angles[0]*rad2deg);
 
     for (unsigned i = 0; i < joint->child_count; i++) {
         write_bvh_joint_sample(bvh, joint->children[i], sample);
     }
-}
-
-float amc_joint_sample_channel(struct amc_joint *joint, struct amc_sample *sample, enum channel channel) {
-    for (int i = 0; i < CHANNEL_COUNT; i++) {
-        if (joint->channels[i] == channel) {
-            return sample->data[joint->motion_index+i];
-        }
-    }
-    return 0;
 }
 
 #include "render_test.c"
@@ -342,15 +334,6 @@ int main(int argc, char **argv) {
         fclose(asf);
         fclose(amc);
         fclose(bvh);
-
-        render_test(skeleton, motion, 0);
-        // struct euler_triple t = {
-        //     .alpha = 0*M_PI/180, .beta = -90*M_PI/180, .gamma = -90*M_PI/180,
-        //     .first = CHANNEL_RX, .second = CHANNEL_RY, .third = CHANNEL_RZ
-        // };
-        //
-        // struct quat c = euler_to_quat(t); // quat_mul(a, b);
-        // printf("%f %f %f %f\n", c.w, c.x, c.y, c.z);
         amc_skeleton_free(skeleton);
         amc_motion_free(motion);
     }
@@ -361,32 +344,25 @@ int main(int argc, char **argv) {
 */
 
 struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *joint, int line_num) {
-    struct euler_triple e = { .alpha=0, .beta=0, .gamma=0, .first=CHANNEL_RX, .second=CHANNEL_RY, .third=CHANNEL_RZ };
-    // e.alpha = 0;
-    // e.beta = 0;
-    // e.gamma = 0;
+    struct euler_triple e;
     char order[4];
-    if (sscanf(str, "%f %f %f %3s", &e.alpha, &e.beta, &e.gamma, order) != 4) {
+    if (sscanf(str, "%f %f %f %3s", e.angles, e.angles+1, e.angles+2, order) != 4) {
         FAIL("Expected rotation axis data on line %i to have three components and an order\n", line_num);
     }
 
     float conversion = degrees ? M_PI/180 : 1;
-    e.alpha *= conversion;
-    e.beta *= conversion;
-    e.gamma *= conversion;
+    e.angles[0] *= conversion;
+    e.angles[1] *= conversion;
+    e.angles[2] *= conversion;
 
-    enum channel *ptrs[] = { &e.first, &e.second, &e.third };
     for (int i = 0; i < 3; i++) {
-        if (tolower(order[i]) == 'x') *ptrs[i] = CHANNEL_RX;
-        else if (tolower(order[i]) == 'y') *ptrs[i] = CHANNEL_RY;
-        else if (tolower(order[i]) == 'z') *ptrs[i] = CHANNEL_RZ;
+        if (tolower(order[i]) == 'x') e.order[i] = CHANNEL_RX;
+        else if (tolower(order[i]) == 'y') e.order[i] = CHANNEL_RY;
+        else if (tolower(order[i]) == 'z') e.order[i] = CHANNEL_RZ;
         else FAIL("Unexpected axis `%c' on line %i (expected X, Y, or Z)\n", order[i], line_num);
     }
 
     joint->rotation2 = e;
-
-    // struct euler_triple x = quat_to_euler_xyz(euler_to_quat(e));
-    // printf("%f %f %f %s-> %f %f %f %i%i%i\n", e.alpha, e.beta, e.gamma, order, x.alpha, x.beta, x.gamma, x.first, x.second, x.third);
 
     return euler_to_quat(e);
 }
@@ -456,7 +432,7 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
     joint->name = NULL;
     joint->direction = (struct vec3) { .x=0, .y=0, .z=0 };
     joint->rotation = (struct quat) { .w=1, .x=0, .y=0, .z=0 };
-    joint->rotation2 = (struct euler_triple) { .alpha=0, .beta=0, .gamma=0, .first=CHANNEL_RX, .second=CHANNEL_RY, .third=CHANNEL_RZ };
+    // joint->rotation2 = (struct euler_triple) { .alpha=0, .beta=0, .gamma=0, .first=CHANNEL_RX, .second=CHANNEL_RY, .third=CHANNEL_RZ };
     joint->children = xmalloc(sizeof(*joint->children)*max_child_count);
     joint->child_count = 0;
     joint->length = 0;
@@ -657,15 +633,14 @@ struct quat quat_inv(struct quat q) {
 struct quat euler_to_quat(struct euler_triple e) {
     struct quat q = { .w=1, .x=0, .y=0, .z=0 }; // identity
 
-    enum channel order[] = { e.first, e.second, e.third };
-    float angles[] = { e.alpha, e.beta, e.gamma };
+    // q = q3 * q2 * q1
     for (int i = 0; i < 3; i++) {
         struct vec3 axis = {
-            .x = (order[i] == CHANNEL_RX),
-            .y = (order[i] == CHANNEL_RY),
-            .z = (order[i] == CHANNEL_RZ)
+            .x = (e.order[i] == CHANNEL_RX),
+            .y = (e.order[i] == CHANNEL_RY),
+            .z = (e.order[i] == CHANNEL_RZ)
         };
-        q = quat_mul(angle_axis_to_quat(angles[i], axis), q);
+        q = quat_mul(angle_axis_to_quat(e.angles[i], axis), q);
     }
 
     return q;
@@ -674,12 +649,10 @@ struct quat euler_to_quat(struct euler_triple e) {
 struct euler_triple quat_to_euler_xyz(struct quat q) {
     float roll = atan2(2*(q.w*q.x + q.y*q.z), 1-2*(q.x*q.x + q.y*q.y)),
           pitch = asin(fmax(fmin(2*(q.w*q.y - q.z*q.x), 0.9999), -0.9999)),
-          // CLAMP sin_pitch to -1, 1
-          // pitch = (fabs(sin_pitch) >= 0.9999) ? copysign(M_PI/2, sin_pitch) : asin(sin_pitch),
           yaw = atan2(2*(q.w*q.z + q.x*q.y), 1-2*(q.y*q.y + q.z*q.z));
 
     return (struct euler_triple) {
-        .alpha=roll,       .beta=pitch,         .gamma=yaw,
-        .first=CHANNEL_RX, .second=CHANNEL_RY, .third=CHANNEL_RZ
+        .angles = { roll, pitch, yaw },
+        .order = { CHANNEL_RX, CHANNEL_RY, CHANNEL_RZ }
     };
 }
