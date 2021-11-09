@@ -80,7 +80,7 @@ void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sampl
 // remove the joint parameter
 struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *joint, int line_num);
 void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, bool degrees, char *str, int line_num);
-void parse_channel_order(enum channel *channels, char *str, int line_num);
+void parse_channel_order(enum channel *channels, char *str, bool verbose, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
 
 struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count);

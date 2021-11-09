@@ -72,7 +72,7 @@ struct amc_skeleton *parse_asf_skeleton(FILE *asf, unsigned char max_child_count
                 } else if (streq(prop, "axis")) {
                     current_joint->rotation = parse_joint_rotation(val, unit_degrees, current_joint, line_num);
                 } else if (streq(prop, "dof")) {
-                    parse_channel_order(current_joint->channels, val, line_num);
+                    parse_channel_order(current_joint->channels, val, verbose, line_num);
                 } else if (streq(prop, "end")) {
                     mode = MODE_BONES;
                     if (current_joint->name) {
@@ -121,7 +121,7 @@ struct amc_skeleton *parse_asf_skeleton(FILE *asf, unsigned char max_child_count
                      *val = bifurcate(prop, ' ');
 
                 if (streq(prop, "order")) {
-                    parse_channel_order(skeleton->root->channels, val, line_num);
+                    parse_channel_order(skeleton->root->channels, val, verbose, line_num);
                 } else if (streq(prop, "position")) {
                     skeleton->root_position = parse_vec3(val, line_num);
                 }
@@ -186,6 +186,7 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
                     printf("Warning: unrecognized AMC flag `%s'\n", trimmed);
                 }
             } else if (isdigit(trimmed[0])) {
+                // switch to parsing a frame (aka sample)
                 mode = MODE_MOTION;
                 motion->sample_count++;
                 motion->samples = amc_sample_new(total_channels);
@@ -197,10 +198,12 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
             }
         } else if (mode == MODE_MOTION) {
             if (isdigit(trimmed[0])) {
+                // get ready to parse a new frame
                 motion->sample_count++;
                 current_sample->next = amc_sample_new(total_channels);
                 current_sample = current_sample->next;
             } else {
+                // parse a frame of animation for a single bone
                 char *joint_name = trimmed,
                      *channel_data = bifurcate(trimmed, ' ');
                 struct amc_joint *joint = jointmap_get(skeleton->map, joint_name);
@@ -329,8 +332,11 @@ int main(int argc, char **argv) {
         struct amc_skeleton *skeleton = parse_asf_skeleton(asf, 4, true);
         printf("Starting to parse %s\n", argv[2]);
         struct amc_motion *motion = parse_amc_motion(amc, skeleton, true);
+        printf("Starting to write BVH skeleton\n");
         write_bvh_skeleton(bvh, skeleton);
+        printf("Starting to write BVH frames\n");
         write_bvh_motion(bvh, motion, skeleton, 120);
+        printf("Done\n");
         fclose(asf);
         fclose(amc);
         fclose(bvh);
@@ -392,7 +398,7 @@ void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_samp
     }
 }
 
-void parse_channel_order(enum channel *channels, char *str, int line_num) {
+void parse_channel_order(enum channel *channels, char *str, bool verbose, int line_num) {
     for (int i = 0; str; i++) {
         if      (starts_with(str, "TX") || starts_with(str, "tx")) channels[i] = CHANNEL_TX;
 		else if (starts_with(str, "TY") || starts_with(str, "ty")) channels[i] = CHANNEL_TY;
@@ -400,8 +406,10 @@ void parse_channel_order(enum channel *channels, char *str, int line_num) {
 		else if (starts_with(str, "RX") || starts_with(str, "rx")) channels[i] = CHANNEL_RX;
 		else if (starts_with(str, "RY") || starts_with(str, "ry")) channels[i] = CHANNEL_RY;
 		else if (starts_with(str, "RZ") || starts_with(str, "rz")) channels[i] = CHANNEL_RZ;
-		else if (starts_with(str, "L")  || starts_with(str, "l"))  channels[i] = CHANNEL_L;
-        else FAIL("Unable to parse channel `%.2s' on line %i\n", str, line_num);
+		else if (starts_with(str, "L")  || starts_with(str, "l")) {
+            channels[i] = CHANNEL_L;
+            if (verbose) printf("Warning: Found length channel on line %i, BVH only supports translations and rotations\n", line_num);
+        } else FAIL("Unable to parse channel `%.2s' on line %i\n", str, line_num);
         str = bifurcate(str, ' ');
     }
 }
