@@ -76,7 +76,7 @@ struct amc_skeleton *parse_asf_skeleton(FILE *asf, unsigned char max_child_count
                 } else if (streq(prop, "end")) {
                     mode = MODE_BONES;
                     if (current_joint->name) {
-                        jointmap_set(skeleton->map, current_joint->name, current_joint);
+                        jointmap_set(skeleton->map, current_joint);
                         if (verbose) printf("Initialized bone `%s'\n", current_joint->name);
                         current_joint = NULL;
                     } else {
@@ -428,13 +428,13 @@ struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count) {
     skeleton->root->name = xmalloc(5);
     strcpy(skeleton->root->name, "root");
     skeleton->map = jointmap_new();
-    jointmap_set(skeleton->map, "root", skeleton->root);
+    jointmap_set(skeleton->map, skeleton->root);
     skeleton->root_position = (struct vec3){ .x=0, .y=0, .z=0 };
     return skeleton;
 }
 
 void amc_skeleton_free(struct amc_skeleton *skeleton) {
-    amc_joint_free(skeleton->root, true);
+    // amc_joint_free(skeleton->root, true);
     hashmap_free(skeleton->map);
     free(skeleton);
 }
@@ -463,11 +463,7 @@ bool amc_joint_has_translation(struct amc_joint *joint) {
     return false;
 }
 
-void amc_joint_free(struct amc_joint *joint, bool deep) {
-    for (unsigned i = 0; (deep && i < joint->child_count); i++) {
-        amc_joint_free(joint->children[i], deep);
-    }
-
+void amc_joint_free(struct amc_joint *joint) {
     free(joint->children);
     free(joint->name);
     free(joint);
@@ -565,11 +561,11 @@ bool starts_with(char *str, char *pref) {
 
 struct hashmap *jointmap_new(void) {
      return hashmap_new_with_allocator(xmalloc, xrealloc, free,
-                                      sizeof(struct jointmap_item), 16,
+                                      sizeof(struct amc_joint*), 16,
                                       0, 0,
                                       jointmap_hash,
                                       jointmap_cmp,
-                                      NULL,
+                                      jointmap_free_item,
                                       NULL);
 }
 
@@ -577,25 +573,30 @@ void jointmap_free(struct hashmap *map) {
     hashmap_free(map);
 }
 
-void *jointmap_get(struct hashmap *map, char *name) {
-    struct jointmap_item search = { .name = name },
-                         *result = hashmap_get(map, &search);
-    return result ? result->joint : NULL;
+void jointmap_free_item(void *item) {
+    struct amc_joint **joint = item;
+    amc_joint_free(*joint);
 }
 
-void jointmap_set(struct hashmap *map, char *name, void *joint) {
-    hashmap_set(map, &(struct jointmap_item ){ .name = name, .joint = joint });
+struct amc_joint *jointmap_get(struct hashmap *map, char *name) {
+    struct amc_joint *search = &(struct amc_joint) { .name = name },
+                     **result = hashmap_get(map, &search);
+    return result ? *result : NULL;
+}
+
+void jointmap_set(struct hashmap *map, struct amc_joint *joint) {
+    hashmap_set(map, &joint);
 }
 
 int jointmap_cmp(const void *a, const void *b, void *data) {
-    const struct jointmap_item *ja = a;
-    const struct jointmap_item *jb = b;
-    return strcmp(ja->name, jb->name);
+    struct amc_joint * const *ja = a;
+    struct amc_joint * const *jb = b;
+    return strcmp((*ja)->name, (*jb)->name);
 }
 
 uint64_t jointmap_hash(const void *item, uint64_t seed0, uint64_t seed1) {
-    const struct jointmap_item *ji = item;
-    return hashmap_sip(ji->name, strlen(ji->name), seed0, seed1);
+    struct amc_joint * const *joint = item;
+    return hashmap_sip((*joint)->name, strlen((*joint)->name), seed0, seed1);
 }
 
 /*

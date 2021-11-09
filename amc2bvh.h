@@ -31,11 +31,6 @@ struct euler_triple {
     enum channel order[3];
 };
 
-struct jointmap_item {
-    char *name;
-    void *joint;
-};
-
 struct amc_joint {
     char *name;     // a unique name (from the ASF file)
     struct amc_joint **children;    // the children of the joint in the tree
@@ -87,7 +82,7 @@ struct amc_skeleton *amc_skeleton_new(unsigned char max_child_count);
 void amc_skeleton_free(struct amc_skeleton *skeleton);
 struct amc_joint *amc_joint_new(unsigned char max_child_count);
 bool amc_joint_has_translation(struct amc_joint *joint);
-void amc_joint_free(struct amc_joint *joint, bool deep);
+void amc_joint_free(struct amc_joint *joint);
 struct amc_motion *amc_motion_new(unsigned total_channels);
 void amc_motion_free(struct amc_motion *motion);
 struct amc_sample *amc_sample_new(unsigned total_channels);
@@ -114,8 +109,9 @@ bool starts_with(char *str, char *pref);
 
 struct hashmap *jointmap_new(void);
 void jointmap_free(struct hashmap *map);
-void *jointmap_get(struct hashmap *map, char *name);
-void jointmap_set(struct hashmap *map, char *name, void *joint);
+void jointmap_free_item(void *item);
+struct amc_joint *jointmap_get(struct hashmap *map, char *name);
+void jointmap_set(struct hashmap *map, struct amc_joint *joint);
 int jointmap_cmp(const void *a, const void *b, void *data);
 uint64_t jointmap_hash(const void *item, uint64_t seed0, uint64_t seed1);
 
