@@ -27,8 +27,6 @@ struct quat {
 struct euler_triple {
     float angles[3];
     enum channel order[3];
-    // float alpha, beta, gamma;
-    // enum channel first, second, third;
 };
 
 struct jointmap_item {
@@ -43,7 +41,6 @@ struct amc_joint {
     unsigned motion_index;  // where motion data for this joint should be stored in a sample (arguably doesn't belong here, but simplifies things)
     struct vec3 direction;  // the direction of the joint (from the ASF file)
     struct quat rotation;   // the local rotation transform of the joint (from the ASF file)
-    struct euler_triple rotation2;
     enum channel channels[CHANNEL_COUNT]; // the animation channels (from the ASF file)
     float length; // the length of the joint (from the ASF file)
 };

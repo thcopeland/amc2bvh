@@ -145,8 +145,7 @@ void calculate_animation_transform(mat4 *animation, struct amc_joint *joint, str
 }
 
 void calculate_axis_transform(mat4 *transform, mat4 *inv_transform, struct amc_joint *joint) {
-    struct euler_triple e = joint->rotation2;
-    // struct euler_triple e2 = quat_to_euler_xyz(joint->rotation); not quite the same, could be singularity issue
+    struct euler_triple e2 = quat_to_euler_xyz(joint->rotation);
 
     attyr_diag_mat4x4(1, transform);
     attyr_diag_mat4x4(1, inv_transform);

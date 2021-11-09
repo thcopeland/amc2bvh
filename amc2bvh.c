@@ -362,8 +362,6 @@ struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *join
         else FAIL("Unexpected axis `%c' on line %i (expected X, Y, or Z)\n", order[i], line_num);
     }
 
-    joint->rotation2 = e;
-
     return euler_to_quat(e);
 }
 
@@ -432,7 +430,6 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
     joint->name = NULL;
     joint->direction = (struct vec3) { .x=0, .y=0, .z=0 };
     joint->rotation = (struct quat) { .w=1, .x=0, .y=0, .z=0 };
-    // joint->rotation2 = (struct euler_triple) { .alpha=0, .beta=0, .gamma=0, .first=CHANNEL_RX, .second=CHANNEL_RY, .third=CHANNEL_RZ };
     joint->children = xmalloc(sizeof(*joint->children)*max_child_count);
     joint->child_count = 0;
     joint->length = 0;
