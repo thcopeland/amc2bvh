@@ -4,6 +4,8 @@
 #include "hashmap.h"
 
 #define CHANNEL_COUNT 8
+#define IS_ROTATION_CHANNEL(ch) ((ch) == CHANNEL_RX || (ch) == CHANNEL_RY || (ch) == CHANNEL_RZ)
+#define IS_TRANSLATION_CHANNEL(ch) ((ch) == CHANNEL_TX || (ch) == CHANNEL_TY || (ch) == CHANNEL_TZ)
 
 enum channel {
     CHANNEL_TX,
@@ -77,7 +79,7 @@ void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sampl
 
 // remove the joint parameter
 struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *joint, int line_num);
-void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, char *str, int line_num);
+void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, bool degrees, char *str, int line_num);
 void parse_channel_order(enum channel *channels, char *str, int line_num);
 struct vec3 parse_vec3(char *str, int line_num);
 

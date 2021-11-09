@@ -157,8 +157,8 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
 
     struct amc_motion *motion = amc_motion_new(total_channels);
     struct amc_sample *current_sample = NULL;
-    float angle_conversion = 1;
-    bool is_fully_specified = false;
+    bool unit_degrees = true,
+         is_fully_specified = false;
 
     // parsing data
     char *buffer = xmalloc(BUFFSIZE);
@@ -173,13 +173,13 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
         else if (strlen(trimmed) == 0) continue; // blank line
 
         if (mode == MODE_NONE) {
-            if (starts_with(trimmed, ":")) { // various flags of uncertain meaning
+            if (starts_with(trimmed, ":")) { // various flags
                 if (streq(trimmed, ":RADIANS")) {
-                    angle_conversion = 180/M_PI;
-                    if (verbose) printf("AMC uses radians (conversion factor = %f)\n", angle_conversion);
+                    unit_degrees = false;
+                    if (verbose) printf("AMC uses radians\n");
                 } else if (streq(trimmed, ":DEGREES")) {
-                    angle_conversion = 1.0;
-                    if (verbose) printf("AMC uses degrees (conversion factor = %f)\n", angle_conversion);
+                    unit_degrees = true;
+                    if (verbose) printf("AMC uses degrees\n");
                 } else if (streq(trimmed, ":FULLY-SPECIFIED")) {
                     is_fully_specified = true;
                 } else if (verbose) {
@@ -205,7 +205,7 @@ struct amc_motion *parse_amc_motion(FILE *amc, struct amc_skeleton *skeleton, bo
                      *channel_data = bifurcate(trimmed, ' ');
                 struct amc_joint *joint = jointmap_get(skeleton->map, joint_name);
                 if (!joint) FAIL("Unrecognized bone `%s' referenced on line %i\n", joint_name, line_num);
-                parse_amc_joint_animation_channels(joint, current_sample, channel_data, line_num);
+                parse_amc_joint_animation_channels(joint, current_sample, unit_degrees, channel_data, line_num);
             }
         }
     }
@@ -291,16 +291,13 @@ void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sampl
         fprintf(bvh, "\t%f\t%f\t%f", tx, ty, tz);
     }
 
-    float deg2rad = M_PI/180,
-          rad2deg = 1/deg2rad;
-
     // read the rotation data
     struct euler_triple sample_rotation;
     for (int i = 0, j = 0; i < CHANNEL_COUNT; i++) {
         enum channel channel = joint->channels[i];
 
-        if (channel == CHANNEL_RX || channel == CHANNEL_RY || channel == CHANNEL_RZ) {
-            sample_rotation.angles[j] = sample->data[joint->motion_index+i] * deg2rad;
+        if (IS_ROTATION_CHANNEL(channel)) {
+            sample_rotation.angles[j] = sample->data[joint->motion_index+i];
             sample_rotation.order[j++] = channel;
         }
     }
@@ -311,7 +308,10 @@ void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sampl
                 motion = euler_to_quat(sample_rotation);
     struct euler_triple combined_rotation = quat_to_euler_xyz(quat_mul(local, quat_mul(motion, local_inv)));
 
-    fprintf(bvh, "\t%f\t%f\t%f", combined_rotation.angles[2]*rad2deg, combined_rotation.angles[1]*rad2deg, combined_rotation.angles[0]*rad2deg);
+    float rad2deg = 180/M_PI;
+    fprintf(bvh, "\t%f\t%f\t%f", combined_rotation.angles[2]*rad2deg,
+                                 combined_rotation.angles[1]*rad2deg,
+                                 combined_rotation.angles[0]*rad2deg);
 
     for (unsigned i = 0; i < joint->child_count; i++) {
         write_bvh_joint_sample(bvh, joint->children[i], sample);
@@ -350,6 +350,7 @@ struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *join
         FAIL("Expected rotation axis data on line %i to have three components and an order\n", line_num);
     }
 
+    // convert to radians
     float conversion = degrees ? M_PI/180 : 1;
     e.angles[0] *= conversion;
     e.angles[1] *= conversion;
@@ -365,7 +366,7 @@ struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *join
     return euler_to_quat(e);
 }
 
-void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, char *str, int line_num) {
+void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, bool degrees, char *str, int line_num) {
     for (int i = 0; i < CHANNEL_COUNT; i++) {
         enum channel channel = joint->channels[i];
 
@@ -382,6 +383,11 @@ void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_samp
             char *val = str;
             str = bifurcate(str, ' ');
             sample->data[joint->motion_index+i] = (float) atof(val);
+
+            // convert to radians if necessary
+            if (IS_ROTATION_CHANNEL(joint->channels[i]) && degrees) {
+                sample->data[joint->motion_index+i] *= M_PI/180;
+            }
         }
     }
 }
@@ -442,8 +448,7 @@ struct amc_joint *amc_joint_new(unsigned char max_child_count) {
 
 bool amc_joint_has_translation(struct amc_joint *joint) {
     for (int i = 0; i < CHANNEL_COUNT && joint->channels[i] != CHANNEL_EMPTY; i++) {
-        enum channel channel = joint->channels[i];
-        if (channel == CHANNEL_TX || channel == CHANNEL_TY || channel == CHANNEL_TZ) {
+        if (IS_TRANSLATION_CHANNEL(joint->channels[i])) {
             return true;
         }
     }

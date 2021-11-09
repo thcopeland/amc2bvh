@@ -120,13 +120,13 @@ void calculate_animation_transform(mat4 *animation, struct amc_joint *joint, str
         if (channel == CHANNEL_EMPTY) {
             break;
         } else if (channel == CHANNEL_RX) {
-            attyr_rotate_x(anim_data[i]*M_PI/180, &ch);
+            attyr_rotate_x(anim_data[i], &ch);
             attyr_mult_mat4x4_4x4(&ch, &rotation, &rotation);
         } else if (channel == CHANNEL_RY) {
-            attyr_rotate_y(anim_data[i]*M_PI/180, &ch);
+            attyr_rotate_y(anim_data[i], &ch);
             attyr_mult_mat4x4_4x4(&ch, &rotation, &rotation);
         } else if (channel == CHANNEL_RZ) {
-            attyr_rotate_z(anim_data[i]*M_PI/180, &ch);
+            attyr_rotate_z(anim_data[i], &ch);
             attyr_mult_mat4x4_4x4(&ch, &rotation, &rotation);
         } else if (channel == CHANNEL_TX) {
             attyr_translate(&(vec3) { anim_data[i], 0, 0 }, &ch);
@@ -145,7 +145,7 @@ void calculate_animation_transform(mat4 *animation, struct amc_joint *joint, str
 }
 
 void calculate_axis_transform(mat4 *transform, mat4 *inv_transform, struct amc_joint *joint) {
-    struct euler_triple e2 = quat_to_euler_xyz(joint->rotation);
+    struct euler_triple e = quat_to_euler_xyz(joint->rotation);
 
     attyr_diag_mat4x4(1, transform);
     attyr_diag_mat4x4(1, inv_transform);
