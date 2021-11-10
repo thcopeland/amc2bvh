@@ -111,6 +111,7 @@ char *trim(char *str);
 char *bifurcate(char *str, char delim);
 bool streq(char *str, char *str2);
 bool starts_with(char *str, char *pref);
+bool ends_with(char *str, char *suff);
 
 struct hashmap *jointmap_new(void);
 void jointmap_free(struct hashmap *map);

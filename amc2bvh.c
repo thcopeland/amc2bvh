@@ -5,7 +5,141 @@
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
+#include <errno.h>
 #include "amc2bvh.h"
+
+// parse command line arguments and perform the conversion
+int main(int argc, char **argv) {
+    char *input_1 = NULL,
+         *input_2 = NULL,
+         *asf_filename,
+         *amc_filename,
+         *output_filename = "out.bvh",
+         *err_str;
+    int fps = 120,
+        max_children = 6;
+    bool verbose = false;
+
+    // parse arguments
+    if (argc == 1) goto print_usage;
+    for (int i = 1; i < argc; i++){
+        char *tok = argv[i];
+        err_str = tok;
+
+        if (streq(tok, "--help")) {
+            printf("Usage: %s FILE.asf FILE.amc [OPTIONS]\n", argv[0]);
+            printf("Convert an ASF/AMC file pair to a BVH file.\n"
+                   "\n"
+                   "The ASF (Acclaim Skeleton Format) and AMC (Acclaim Motion Capture) input files are detected\n"
+                   "by file extension when possible. Otherwise, the first non-argument value is assumed to be the\n"
+                   "ASF file and the second is assumed to be the AMC file.\n"
+                   "  -c, --children COUNT       set the maximum number of children of any bone (default 6)\n"
+                   "  -f, --fps FPS              set the output frames per second; this changes the playback\n"
+                   "                               rate, not the underlying motion data (default 120)\n"
+                   "  -o FILE                    the output file (default out.bvh)\n"
+                   "      --verbose              show parsing information and warnings\n"
+               );
+            return 0;
+        } else if (streq(tok, "-h")) {
+            goto print_usage;
+        } else if (streq(tok, "--verbose")) {
+            verbose = true;
+        } else if (streq(tok, "--fps") || streq(tok, "-f")) {
+            if (i+1 >= argc || starts_with(argv[i+1], "-")) goto val_required;
+            else fps = abs(atoi(argv[++i]));
+        } else if (streq(tok, "--children") || streq(tok, "-c")) {
+            if (i+1 >= argc || starts_with(argv[i+1], "-")) goto val_required;
+            else max_children = abs(atoi(argv[++i]));
+        } else if (streq(tok, "-o")) {
+            if (i+1 >= argc || starts_with(argv[i+1], "-")) goto val_required;
+            else output_filename = argv[++i];
+        } else if (starts_with(tok, "-")) {
+            goto opt_unknown;
+        } else {
+            if (!input_1) input_1 = tok;
+            else if (!input_2) input_2 = tok;
+            else goto opt_unknown;
+        }
+    }
+
+    if (!input_1 || !input_2) {
+        err_str = "both an ASF and AMC file";
+        goto opt_required;
+    }
+
+    // attempt to detect ASF and AMC files by extension
+    if (ends_with(input_1, ".asf") || ends_with(input_1, ".ASF")) {
+        asf_filename = input_1;
+        amc_filename = input_2;
+    } else if (ends_with(input_2, ".asf") || ends_with(input_2, ".ASF")) {
+        asf_filename = input_2;
+        amc_filename = input_1;
+    } else if (ends_with(input_1, ".amc") || ends_with(input_1, ".AMC")) {
+        amc_filename = input_1;
+        asf_filename = input_2;
+    } else if (ends_with(input_2, ".amc") || ends_with(input_2, ".AMC")) {
+        asf_filename = input_1;
+        amc_filename = input_2;
+    } else {
+        // give up and assign by order
+        asf_filename = input_1;
+        amc_filename = input_2;
+    }
+
+    FILE *asf, *amc, *bvh;
+    if (!(asf=fopen(asf_filename, "r"))) {
+        err_str = asf_filename;
+        goto fopen_error;
+    } else if (!(amc=fopen(amc_filename, "r"))) {
+        err_str = amc_filename;
+        fclose(asf);
+        goto fopen_error;
+    } else if (!(bvh=fopen(output_filename, "w"))) {
+        err_str = output_filename;
+        fclose(asf);
+        fclose(amc);
+        goto fopen_error;
+    }
+
+    // do the work
+    struct amc_skeleton *skeleton = parse_asf_skeleton(asf, max_children, verbose);
+    if (verbose) printf("Successfully parsed ASF skeleton from %s\n", asf_filename);
+    struct amc_motion *motion = parse_amc_motion(amc, skeleton, verbose);
+    if (verbose) printf("Successfully parsed AMC motion from %s\n", amc_filename);
+    write_bvh_skeleton(bvh, skeleton);
+    write_bvh_motion(bvh, motion, skeleton, fps);
+    if (verbose) printf("Successfully wrote BVH motion to %s\n", output_filename);
+
+    // clean up
+    fclose(asf);
+    fclose(amc);
+    fclose(bvh);
+    amc_skeleton_free(skeleton);
+    amc_motion_free(motion);
+
+    return 0;
+
+val_required:
+    fprintf(stderr, "%s: missing value after '%s'\n", argv[0], err_str);
+    return 1;
+
+opt_unknown:
+    fprintf(stderr, "%s: unknown option '%s'\n", argv[0], err_str);
+    return 1;
+
+opt_required:
+    fprintf(stderr, "%s: %s required\n", argv[0], err_str);
+    return 1;
+
+fopen_error:
+    fprintf(stderr, "%s: cannot access '%s': %s\n", argv[0], err_str, strerror(errno));
+    return 1;
+
+print_usage:
+    fprintf(stderr, "Usage: %s FILE.asf FILE.amc [OPTIONS]\n", argv[0]);
+    fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
+    return 1;
+}
 
 enum parsing_mode {
     MODE_NONE,  // default
@@ -324,28 +458,6 @@ void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sampl
     }
 }
 
-int main(int argc, char **argv) {
-    if (argc > 3) {
-        FILE *asf = fopen(argv[1], "r"),
-             *amc = fopen(argv[2], "r"),
-             *bvh = fopen(argv[3], "w");
-        printf("Starting to parse %s\n", argv[1]);
-        struct amc_skeleton *skeleton = parse_asf_skeleton(asf, 4, true);
-        printf("Starting to parse %s\n", argv[2]);
-        struct amc_motion *motion = parse_amc_motion(amc, skeleton, true);
-        printf("Starting to write BVH skeleton\n");
-        write_bvh_skeleton(bvh, skeleton);
-        printf("Starting to write BVH frames\n");
-        write_bvh_motion(bvh, motion, skeleton, 120);
-        printf("Done\n");
-        fclose(asf);
-        fclose(amc);
-        fclose(bvh);
-        amc_skeleton_free(skeleton);
-        amc_motion_free(motion);
-    }
-}
-
 /*
   HELPER METHODS
 */
@@ -558,6 +670,13 @@ bool streq(char *str, char *str2) {
 
 bool starts_with(char *str, char *pref) {
     return strncmp(str, pref, strlen(pref)) == 0;
+}
+
+bool ends_with(char *str, char *suff) {
+    int str_len = strlen(str),
+        suff_len = strlen(suff);
+
+    return suff_len <= str_len && strcmp(str+str_len-suff_len, suff) == 0;
 }
 
 struct hashmap *jointmap_new(void) {
