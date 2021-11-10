@@ -8,6 +8,10 @@
 #define M_PI 3.141592653589793
 #endif
 
+#define VERSION_MAJOR 0
+#define VERSION_MINOR 0
+#define VERSION_PATCH 0
+
 #define CHANNEL_COUNT 8
 #define IS_ROTATION_CHANNEL(ch) ((ch) == CHANNEL_RX || (ch) == CHANNEL_RY || (ch) == CHANNEL_RZ)
 #define IS_TRANSLATION_CHANNEL(ch) ((ch) == CHANNEL_TX || (ch) == CHANNEL_TY || (ch) == CHANNEL_TZ)

@@ -38,10 +38,14 @@ int main(int argc, char **argv) {
                    "                               rate, not the underlying motion data (default 120)\n"
                    "  -o FILE                    the output file (default out.bvh)\n"
                    "      --verbose              show parsing information and warnings\n"
+                   "  -v, --version              print version information\n"
                );
             return 0;
         } else if (streq(tok, "-h")) {
             goto print_usage;
+        } else if (streq(tok, "--version") || streq(tok, "-v")) {
+            printf("v%u.%u.%u\n", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+            return 0;
         } else if (streq(tok, "--verbose")) {
             verbose = true;
         } else if (streq(tok, "--fps") || streq(tok, "-f")) {
@@ -148,7 +152,7 @@ enum parsing_mode {
     MODE_ROOT,  // parse the root bone section in ASF files
     MODE_BONES, // parse bone date in ASF files
     MODE_BONE,  // parse a single bone's data in ASF files
-    MODE_TREE,  // parse the bone heirarchy information in ASF files
+    MODE_TREE,  // parse the bone hierarchy information in ASF files
     MODE_MOTION // parse a frame in AMC files
 };
 
