@@ -1,3 +1,13 @@
+// This is a short program, originally intended to help with debugging amc2bvh,
+// that renders ASF/AMC animations to a truecolor UTF-8 terminal. It depends on
+// the amc2bvh headers and the ATTYR renderer (also by the author, it can be
+// downloaded from https://github.com/thcopeland/attyr).
+//
+// Usage is pretty simple, just call render_amc_animation() with an ASF skeleton
+// and AMC motion. Press Ctrl-C to stop. It will be fairly difficult to run
+// this on Windows, due to signal handling (which can be easily removed) and
+// ATTYR installation (which is harder to work around).
+
 #include <attyr/attyr.h>
 #include <attyr/short_names.h>
 #include <signal.h>
@@ -222,7 +232,7 @@ void handle_sigint() {
     is_alive = 0;
 }
 
-void render_test(struct amc_skeleton *skeleton, struct amc_motion *motion) {
+void render_amc_animation(struct amc_skeleton *skeleton, struct amc_motion *motion) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = handle_sigint;

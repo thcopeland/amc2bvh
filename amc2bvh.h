@@ -1,7 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <math.h>
 #include "hashmap.h"
+
+#ifndef M_PI
+#define M_PI 3.141592653589793
+#endif
 
 #define CHANNEL_COUNT 8
 #define IS_ROTATION_CHANNEL(ch) ((ch) == CHANNEL_RX || (ch) == CHANNEL_RY || (ch) == CHANNEL_RZ)
@@ -59,6 +64,7 @@ struct amc_motion {
     struct amc_sample *samples;
 };
 
+// essentially the maximum line length
 #define BUFFSIZE 2048
 
 struct amc_skeleton *parse_asf_skeleton(FILE *asf, unsigned char max_child_count, bool verbose);
@@ -72,7 +78,6 @@ void write_bvh_joint(FILE *bvh,
 void write_bvh_motion(FILE *bvh, struct amc_motion *motion, struct amc_skeleton *skeleton, float fps);
 void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sample *sample);
 
-// remove the joint parameter
 struct quat parse_joint_rotation(char *str, bool degrees, struct amc_joint *joint, int line_num);
 void parse_amc_joint_animation_channels(struct amc_joint *joint, struct amc_sample *sample, bool degrees, char *str, int line_num);
 void parse_channel_order(enum channel *channels, char *str, bool verbose, int line_num);

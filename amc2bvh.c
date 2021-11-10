@@ -1,18 +1,21 @@
+// This is a utility to convert ASF/AMC files, which are largely unsupported, to
+// BVH files, which are in common use. It has no nonstandard dependencies, and
+// should compile on both Unix-based systems and Windows.
+
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
-#include <math.h>
 #include "amc2bvh.h"
 
 enum parsing_mode {
-    MODE_NONE,
-    MODE_UNIT,
-    MODE_DOC,
-    MODE_ROOT,
-    MODE_BONES,
-    MODE_BONE,
-    MODE_TREE,
-    MODE_MOTION
+    MODE_NONE,  // default
+    MODE_UNIT,  // parse unit declarations in ASF files
+    MODE_DOC,   // parse documentation section in ASF files
+    MODE_ROOT,  // parse the root bone section in ASF files
+    MODE_BONES, // parse bone date in ASF files
+    MODE_BONE,  // parse a single bone's data in ASF files
+    MODE_TREE,  // parse the bone heirarchy information in ASF files
+    MODE_MOTION // parse a frame in AMC files
 };
 
 struct amc_skeleton *parse_asf_skeleton(FILE *asf, unsigned char max_child_count, bool verbose) {
@@ -320,8 +323,6 @@ void write_bvh_joint_sample(FILE *bvh, struct amc_joint *joint, struct amc_sampl
         write_bvh_joint_sample(bvh, joint->children[i], sample);
     }
 }
-
-#include "render_test.c"
 
 int main(int argc, char **argv) {
     if (argc > 3) {
