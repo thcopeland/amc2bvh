@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wno-implicit-fallthrough -Wno-unused-parameter -flto -O2 -I. -lm -lattyr
+CFLAGS=-Wall -Wextra -Wno-implicit-fallthrough -Wno-unused-parameter -flto -O2 -I. -lm
 DEPS=amc2bvh.h hashmap.h
 OBJ=amc2bvh.o hashmap.o
 
