@@ -4,21 +4,29 @@
 
 A previous program called `amc2bvh` used to exist, however, now that its site has gone offline, the only remnant is a Windows executable saved at https://github.com/sxaxmz/amc2bvh. This incarnation attempts to provide more or less the same functionality in an open-source utility.
 
-The most significant source of ASF/AMC files is the [Carnegie Mellon University motion capture database](http://mocap.cs.cmu.edu/). However, Bruce Hahne at [cgspeed](https://sites.google.com/a/cgspeed.com/cgspeed) has already converted them into [BVH files](https://sites.google.com/a/cgspeed.com/cgspeed/motion-capture) suitable for various animation programs. You should probably use them in preference of converting them with `amc2bvh`.
+The most significant source of ASF/AMC files is the [Carnegie Mellon University motion capture database](http://mocap.cs.cmu.edu/). However, Bruce Hahne at [cgspeed](https://sites.google.com/a/cgspeed.com/cgspeed) has already converted them into [BVH files suitable for various animation programs](https://sites.google.com/a/cgspeed.com/cgspeed/motion-capture). You should probably use them in preference of converting them with `amc2bvh`.
 
 If you're interested in learning more about the ASF/AMC or BVH formats, I've found [this website](https://research.cs.wisc.edu/graphics/Courses/cs-838-1999/Jeff/MoCapTOC.html) to be an invaluable reference.
 
 ## Installation
 
-Download the most recent version from the [Releases](https://github.com/thcopeland/amc2bvh/releases) page. Or, if you prefer to build from source, clone the repository or download the code and run `make`:
+#### Windows
 
+Download the most recent version for your operating system from the [Releases](https://github.com/thcopeland/amc2bvh/releases) page. If you're running 64-bit Windows, choose the `x86_64_windows.zip` version. If you're running 32-bit Windows, or you're not sure, choose the `i686_windows.zip` version. After downloading, unzip the folder. Optionally, add the installation directory (something like `%USERPROFILE%\Downloads\amc2bvh-1.0.0_i686_windows`) to your PATH ([instructions](https://www.architectryan.com/2018/03/17/add-to-the-path-on-windows-10/)). To use `amc2bvh`, open the command line and type
 ```
-$ cd amc2bvh-1.0.0/
-amc2bvh-1.0.0 $ make
-...
-amc2bvh-1.0.0 $ ./amc2bvh -v
-v1.0.0
+C:\Users\Tom> Downloads\amc2bvh-1.0.0_i686_windows\amc2bvh.exe FILE.asf FILE.amc -o FILE.bvh
 ```
+If you added the installation directory to your PATH, you can forego the leading `Downloads\amc2bvh-1.0.0_i686_windows\` when you run `amc2bvh`.
+
+Alternatively, you can build from source. `amc2bvh` doesn't use any non-standard libraries.
+
+#### Unix systems
+
+If you're running a x86_64 OS, you can download a binary from the [Releases](https://github.com/thcopeland/amc2bvh/releases) page. If you're running something else or prefer to build from source, clone the repository and run `make`. If you want, copy or symlink it to `$HOME/bin/` or somewhere else on your `$PATH`.
+
+#### Other
+
+Just compile the code or something. Chances are you do this a lot already.
 
 ## Usage
 
@@ -32,11 +40,13 @@ v1.0.0
  $ amc2bvh 06.asf 06_15.amc --help              # show the help message
 ```
 
-Although there's room for improvement, `amc2bvh` is plenty fast. It converts a 5594-frame animation on a 30-bone skeleton in about a third of a second.
+Although there's room for improvement, `amc2bvh` is plenty fast. It converts a 5594-frame animation on a 30-bone skeleton in about a third of a second, most of which is spend in IO calls.
 
 #### Caveats
 
-`amc2bvh` performs a straightforward, one-to-one conversion from ASF/AMC files to BVH files. One consequence of this is that the resulting BVH file may contain bones of zero length. I have not found this to be a serious issue, but it causes some importers (Blender, in particular) produce warnings.
+- `amc2bvh` performs a straightforward, one-to-one conversion from ASF/AMC files to BVH files. One consequence of this is that the resulting BVH file may contain bones of zero length. I have not found this to be a serious issue, but it causes some importers (Blender, in particular) produce warnings. If this proves to be a problem, we could patch it by setting the bone lengths to some small nonzero value.
+
+- For simplicity, `amc2bvh` allows bones to have at most a fixed number of children, specified by the `-c` flag. The default value is 6, which should be more than sufficient for human models. However, if you get an error like `Error: Bone 'root' has X children, max permitted is Y`, pass `-c X` on the command line.
 
 ## License (MIT)
 
@@ -47,5 +57,3 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Note that `hashmap.c` and `hashmap.h` are taken from Josh Baker's hashmap.c library and included under MIT.
